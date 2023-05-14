@@ -28,7 +28,7 @@ team_t team = {
     /* First member's full name */
     "h.kim",
     /* First member's email address */
-    "huir0@github.com",
+    "github.com/huir0",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
@@ -73,6 +73,11 @@ team_t team = {
 #define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
+#define NEXT_FIT
+
+#ifdef NEXT_FIT
+static char *pointp; // pointer to search block
+#endif
 
 static char *heap_listp; /* always points prologue block*/
 
@@ -105,7 +110,9 @@ static void *coalesce(void *bp) {
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
-
+    #ifdef NEXT_FIT
+        pointp = bp;
+    #endif
     return bp;
 }
 
@@ -123,7 +130,9 @@ static void *extend_heap(size_t words) {
     PUT(FTRP(bp), PACK(size, 0));           // free block footer
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));   // new epilogue header
 
-
+#ifdef NEXT_FIT                             // pointer to next block for next fit 
+    pointp = NEXT_BLKP(bp);
+#endif
 
     return coalesce(bp);
 }
@@ -143,6 +152,9 @@ int mm_init(void)
     PUT(heap_listp + (3*WSIZE), PACK(0, 1));        // epilogue header
     heap_listp += (2*WSIZE);
 
+#ifdef NEXT_FIT
+    pointp = heap_listp;
+#endif
 
     // extend the empty heap with a free block of CHUNKSIZE bytes
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
@@ -154,7 +166,23 @@ int mm_init(void)
 static void *find_fit(size_t asize) {
     void *bp;
 
-
+#ifdef NEXT_FIT
+    /* next fit */
+    void *old_pointp = pointp;
+    for (bp = pointp; GET_SIZE(HDRP(bp)); bp = NEXT_BLKP(bp)) {
+        if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize) {
+            pointp = NEXT_BLKP(bp);
+            return bp;
+        }
+    }
+    for (bp = heap_listp; bp < old_pointp; bp = NEXT_BLKP(bp)) {
+        if ((!GET_ALLOC(HDRP(bp))) && GET_SIZE(HDRP(bp)) >= asize) {
+        pointp = NEXT_BLKP(bp);
+        return bp;
+        }
+    }
+    return NULL;
+#else
     /* first fit */
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
@@ -162,7 +190,7 @@ static void *find_fit(size_t asize) {
         }
     }
     return NULL;
-
+#endif
 
     /* best fit */ 
     // void *best = NULL;
@@ -184,12 +212,20 @@ static void place(void *bp, size_t asize) {
         PUT(FTRP(bp), PACK(asize, 1));
         bp = NEXT_BLKP(bp);
 
+#ifdef NEXT_FIT
+        pointp = bp;
+#endif
+
         PUT(HDRP(bp), PACK(csize-asize, 0));
         PUT(FTRP(bp), PACK(csize-asize, 0));
     }
     else {
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
+
+#ifdef NEXT_FIT
+    pointp = NEXT_BLKP(bp);
+#endif
 
     }
 }
