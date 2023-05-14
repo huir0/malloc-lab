@@ -83,37 +83,38 @@ static char *heap_listp; /* always points prologue block*/
 
 
 static void *coalesce(void *bp) {
+    // check if prev and next blocks are allocated or free
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
-    size_t size = GET_SIZE(HDRP(bp));
+    size_t size = GET_SIZE(HDRP(bp));       // get size of current block
 
     if (prev_alloc && next_alloc) {         // case 1 : prev and next allocated
         return bp;
     }
 
     else if (prev_alloc && !next_alloc) {   // case 2 : prev allocated, next free
-        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-        PUT(HDRP(bp), PACK(size, 0));
-        PUT(FTRP(bp), PACK(size, 0));
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));  // increase size by size of next block
+        PUT(HDRP(bp), PACK(size, 0));       // update header
+        PUT(FTRP(bp), PACK(size, 0));       // update footer
     }
 
     else if (!prev_alloc && next_alloc) {   // case 3 : prev free, next allocated
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        PUT(FTRP(bp), PACK(size, 0));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
-        bp = PREV_BLKP(bp);
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));  // increase size by size of prev block
+        PUT(FTRP(bp), PACK(size, 0));       // update footer
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));    // update header of prev block
+        bp = PREV_BLKP(bp);                 // move bp to prev block
     }
 
     else {                                  // case 4 : next and prev free
         size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
-        bp = PREV_BLKP(bp);
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));    // update header of prev block
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));    // update footer of next block
+        bp = PREV_BLKP(bp);                 // move bp to prev block
     }
     #ifdef NEXT_FIT
         pointp = bp;
     #endif
-    return bp;
+    return bp;  // return pointer to coalesced block
 }
 
 static void *extend_heap(size_t words) {
@@ -168,25 +169,31 @@ static void *find_fit(size_t asize) {
 
 #ifdef NEXT_FIT
     /* next fit */
-    void *old_pointp = pointp;
+    void *old_pointp = pointp; // save the original value of pointp
+    // search from pointp to end of heap
     for (bp = pointp; GET_SIZE(HDRP(bp)); bp = NEXT_BLKP(bp)) {
+        // if block is free and large enough
         if (!GET_ALLOC(HDRP(bp)) && GET_SIZE(HDRP(bp)) >= asize) {
-            pointp = NEXT_BLKP(bp);
-            return bp;
+            pointp = NEXT_BLKP(bp); // update pointp
+            return bp;              // return pointer to found block
         }
     }
+    // search from beginning of heap to old_pointp
     for (bp = heap_listp; bp < old_pointp; bp = NEXT_BLKP(bp)) {
+        // if block is free and large enough
         if ((!GET_ALLOC(HDRP(bp))) && GET_SIZE(HDRP(bp)) >= asize) {
-        pointp = NEXT_BLKP(bp);
-        return bp;
+        pointp = NEXT_BLKP(bp);     // update pointp
+        return bp;                  // return pointer to found block
         }
     }
-    return NULL;
+    return NULL;                    // no suitable block found
 #else
     /* first fit */
+    // search from beginning of heap to end
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+        // if block is free and large enough
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
-            return bp;
+            return bp;              // return pointer to found block
         }
     }
     return NULL;
@@ -205,26 +212,27 @@ static void *find_fit(size_t asize) {
 }
 
 static void place(void *bp, size_t asize) {
-    size_t csize = GET_SIZE(HDRP(bp));
+    size_t csize = GET_SIZE(HDRP(bp));      // get current size of block
 
+    // if block can be split
     if ((csize - asize) >= (2*DSIZE)) {
-        PUT(HDRP(bp), PACK(asize ,1));
-        PUT(FTRP(bp), PACK(asize, 1));
-        bp = NEXT_BLKP(bp);
+        PUT(HDRP(bp), PACK(asize ,1));      // set header of first block
+        PUT(FTRP(bp), PACK(asize, 1));      // set footer of first block
+        bp = NEXT_BLKP(bp);                 // move to second block
 
 #ifdef NEXT_FIT
-        pointp = bp;
+        pointp = bp;  // update pointp
 #endif
 
-        PUT(HDRP(bp), PACK(csize-asize, 0));
-        PUT(FTRP(bp), PACK(csize-asize, 0));
+        PUT(HDRP(bp), PACK(csize-asize, 0));    // set header of second block
+        PUT(FTRP(bp), PACK(csize-asize, 0));    // set footer of second block
     }
-    else {
-        PUT(HDRP(bp), PACK(csize, 1));
-        PUT(FTRP(bp), PACK(csize, 1));
+    else {                                  // use entire block
+        PUT(HDRP(bp), PACK(csize, 1));      // set header
+        PUT(FTRP(bp), PACK(csize, 1));      // set footer
 
 #ifdef NEXT_FIT
-    pointp = NEXT_BLKP(bp);
+    pointp = NEXT_BLKP(bp);  // update pointp
 #endif
 
     }
@@ -273,11 +281,11 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-    size_t size = GET_SIZE(HDRP(ptr));
+    size_t size = GET_SIZE(HDRP(ptr));  // get size of block
 
-    PUT(HDRP(ptr), PACK(size, 0));
-    PUT(FTRP(ptr), PACK(size, 0));
-    coalesce(ptr);
+    PUT(HDRP(ptr), PACK(size, 0));      // set header to indicate block is free
+    PUT(FTRP(ptr), PACK(size, 0));      // set footer to indicate block is free
+    coalesce(ptr);                      // merge with adjacent free blocks
 }
 
 /*
@@ -285,19 +293,19 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
+    void *oldptr = ptr;         // save pointer to old blocks
+    void *newptr;               // pointer to new block
+    size_t copySize;            // size of data to be copied
     
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
+    newptr = mm_malloc(size);   // allocate new block
+    if (newptr == NULL)         // if allocation failed return NULL
       return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-      copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);   // get size of old block
+    if (size < copySize)        // if new size is smaller than old size
+      copySize = size;          // only copy new size bytes
+    memcpy(newptr, oldptr, copySize);   // copy data from old block to new block
+    mm_free(oldptr);            // free old block
+    return newptr;              // return pointer to new block
 }
 
 
